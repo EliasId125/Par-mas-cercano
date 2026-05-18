@@ -1,0 +1,299 @@
+import os
+import math
+import matplotlib.pyplot as plt
+
+# =========================================================================
+# 1. FUNCIONES DEL ALGORITMO DIVIDE Y VENCERÁS
+# =========================================================================
+
+def distancia(p1, p2):
+    """
+    Calcula la distancia euclidiana estándar entre dos puntos en un plano cartesiano 2D.
+    Utiliza el teorema de Pitágoras: raíz cuadrada de ((x2 - x1)^2 + (y2 - y1)^2).
+    """
+    return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
+
+
+def fuerza_bruta(puntos):
+    """
+    Solución por Fuerza Bruta con complejidad temporal O(n^2).
+    Se utiliza como el 'Caso Base' de la recursión cuando los subproblemas se reducen 
+    a un tamaño manejable (3 puntos o menos) para evitar llamadas recursivas infinitas.
+    Compara todos los puntos contra todos para encontrar con total certeza el par más cercano.
+    """
+    min_dist = float('inf')  # Se inicializa con infinito para asegurar que la primera comparación sea menor
+    par_cercano = None
+    n = len(puntos)
+    
+    # Doble ciclo anidado para inspeccionar cada combinación única de pares sin repetir
+    for i in range(n):
+        for j in range(i + 1, n):
+            d = distancia(puntos[i], puntos[j])
+            # Si se halla una distancia menor al récord actual, se actualizan las variables
+            if d < min_dist:
+                min_dist = d
+                par_cercano = (puntos[i], puntos[j])
+                
+    return min_dist, par_cercano
+
+
+def franja_mas_cercano(franja, delta, par_actual):
+    """
+    Fase de Combinación Crítica: Evalúa la franja o zona central de ancho 2*delta.
+    Determina si existe una pareja de puntos con menor distancia que cruce la frontera 
+    (un punto ubicado en la mitad izquierda y el otro en la mitad derecha).
+    """
+    min_dist = delta
+    mejor_par = par_actual
+    
+    # PASO CLAVE: Ordenar los puntos de la franja según la coordenada Y.
+    # Gracias a esto, el análisis de combinación se reduce a un tiempo lineal O(n).
+    franja.sort(key=lambda punto: punto[1]) 
+    n = len(franja)
+    
+    # Escaneo geométrico de la franja optimizado
+    for i in range(n):
+        for j in range(i + 1, n):
+            # OPTIMIZACIÓN GEOMÉTRICA: Si la diferencia en Y ya es igual o mayor a la distancia
+            # mínima actual (delta), no tiene sentido seguir comparando con los siguientes puntos 
+            # de la lista, ya que por ordenamiento vertical estarán aún más lejos. Se rompe el ciclo.
+            if (franja[j][1] - franja[i][1]) >= min_dist:
+                break
+                
+            d = distancia(franja[i], franja[j])
+            if d < min_dist:
+                min_dist = d
+                mejor_par = (franja[i], franja[j]) 
+                
+    return min_dist, mejor_par
+
+
+def par_cercano_recursivo(puntos_x):
+    """
+    Función recursiva central que implementa la estrategia de Divide y Vencerás.
+    Asume como precondición obligatoria que la lista de entrada está ordenada en el eje X.
+    Divide el espacio simétricamente, conquista las mitades y combina los resultados.
+    """
+    n = len(puntos_x)
+    
+    # 1. CASO BASE: Si quedan 3 puntos o menos, se resuelve de forma directa por Fuerza Bruta
+    if n <= 3:
+        return fuerza_bruta(puntos_x) 
+        
+    # 2. DIVISIÓN: Encontrar el punto medio geométrico para segmentar el plano verticalmente
+    mitad = n // 2
+    punto_medio = puntos_x[mitad] 
+    
+    # Subdivisión del espacio en regiones Izquierda (izq) y Derecha (der)
+    izq = puntos_x[:mitad]
+    der = puntos_x[mitad:] 
+    
+    # 3. CONQUISTA: Llamadas recursivas para buscar el par más cercano en cada lado por separado
+    dl, par_l = par_cercano_recursivo(izq)
+    dr, par_r = par_cercano_recursivo(der) 
+    
+    # Se evalúa cuál de las dos mitades posee la distancia más corta (nuestro delta inicial)
+    if dl < dr:
+        delta = dl
+        mejor_par = par_l
+    else:
+        delta = dr
+        mejor_par = par_r
+        
+    # 4. COMBINACIÓN: Se construye la franja central (Strip) recolectando solo los puntos 
+    # cuya distancia horizontal (en el eje X) con respecto a la línea divisoria sea menor que delta.
+    franja = [p for p in puntos_x if abs(p[0] - punto_medio[0]) < delta]
+    
+    # Evaluamos los puntos candidatos dentro de la franja central
+    d_franja, par_franja = franja_mas_cercano(franja, delta, mejor_par) 
+    
+    # Retorno del resultado óptimo absoluto para este nivel de la recursión
+    if d_franja < delta:
+        return d_franja, par_franja
+    else:
+        return delta, mejor_par
+
+
+def buscar_par_mas_cercano(puntos):
+    """
+    Punto de entrada principal del algoritmo. Realiza el ordenamiento inicial 
+    de todo el conjunto de puntos respecto al eje X. Esto garantiza que la complejidad 
+    global se mantenga estrictamente acotada en un orden de O(n log n).
+    """
+    puntos_ordenados = sorted(puntos, key=lambda punto: punto[0])
+    return par_cercano_recursivo(puntos_ordenados)
+
+
+# =========================================================================
+# 2. LECTURA DE LOS DATOS DESDE ARCHIVO (SISTEMA DE PARSEO CONTINUO)
+# =========================================================================
+
+def cargar_datos(nombre_archivo):
+    """
+    Manejador de archivos adaptado para flujos continuos de datos separados por comas.
+    Lee toda la información en memoria, remueve impurezas y estructura tuplas coordinadas (X, Y).
+    """
+    # Verificación de seguridad para asegurar la existencia del archivo en la ruta
+    if not os.path.exists(nombre_archivo):
+        print(f"\n[Error] El archivo '{nombre_archivo}' no se encuentra en el directorio actual.")
+        return None 
+        
+    with open(nombre_archivo, 'r') as f:
+        # Se lee absolutamente todo el contenido del archivo como una sola cadena de caracteres
+        contenido = f.read() 
+        
+        # NORMALIZACIÓN: Se reemplazan saltos de línea (\n) o tabuladores (\t) por comas sencillas
+        contenido = contenido.replace('\n', ',').replace('\t', ',')
+        
+        # PARSEO: Se separa la gran cadena por cada coma y se eliminan espacios en blanco periféricos
+        valores_limpios = [v.strip() for v in contenido.split(',') if v.strip()] 
+        
+    # Se transforman las subcadenas resultantes a números de tipo flotante (float)
+    numeros = [float(x) for x in valores_limpios] 
+    
+    # CONSTRUCCIÓN DE COORDENADAS: Se recorre la lista saltando de dos en dos para formar pares (X, Y)
+    puntos = []
+    for i in range(0, len(numeros) - 1, 2):
+        puntos.append((numeros[i], numeros[i+1])) 
+        
+    return puntos
+
+
+def menu_seleccion():
+    """Despliega la interfaz de selección interactiva por consola."""
+    print("="*50)
+    print("  ENCONTRAR EL PAR DE PUNTOS MÁS CERCANO.")
+    print("="*50)
+    print("Selecciona el archivo para encontrar par mas cercano:")
+    print("1. datos_100.txt")
+    print("2. datos_1000.txt")
+    print("3. datos_10000.txt")
+    print("4. Salir")
+    print("="*50)
+    
+    opcion = input("Ingresa el número de tu opción (1-4): ").strip() 
+    
+    if opcion == '1': return "datos_100.txt"
+    elif opcion == '2': return "datos_1000.txt"
+    elif opcion == '3': return "datos_10000.txt"
+    elif opcion == '4': return None
+    else:
+        print("Opción inválida. Intenta de nuevo.\n")
+        return menu_seleccion()  # Ciclo recursivo de control de errores de usuario
+
+
+# =========================================================================
+# 3. FUNCIÓN DE GRAFICACIÓN DE RESULTADOS CON MATPLOTLIB
+# =========================================================================
+
+def graficar_resultado(puntos, par_cercano, distancia_min, nombre_archivo):
+    """
+    Renderiza y despliega la solución visual en un plano panorámico expandido.
+    Muestra la nube total de puntos, el eje de división y el área de la franja.
+    """
+    # Establece un fondo oscuro estilizado de alta visibilidad para los puntos de color
+    plt.style.use('dark_background')
+    fig, ax = plt.subplots(figsize=(13, 7)) # Proporción panorámica rectangular óptima
+    
+    # Desempaquetado de coordenadas X e Y de toda la nube para pasárselas a la gráfica
+    x_puntos = [p[0] for p in puntos]
+    y_puntos = [p[1] for p in puntos] 
+    
+    # Cálculo exacto de la ubicación del eje central divisorio (Mediana en X)
+    puntos_ordenados = sorted(puntos, key=lambda p: p[0])
+    mitad = len(puntos_ordenados) // 2
+    x_division = puntos_ordenados[mitad][0] 
+    
+    # CONTROL DE DENSIDAD VISUAL: Modifica dinámicamente el diámetro y la opacidad de los puntos 
+    # según el tamaño del archivo cargado para evitar solapamientos destructivos en la pantalla.
+    total_puntos = len(puntos)
+    if total_puntos <= 100:
+        tamano_punto = 35
+        opacidad = 0.85
+    elif total_puntos <= 1000:
+        tamano_punto = 18
+        opacidad = 0.75
+    else: # Ajuste ultra fino optimizado para el volumen masivo de 10,000 puntos
+        tamano_punto = 8
+        opacidad = 0.60
+        
+    # 1. Se dibuja el universo completo de puntos (Capa de fondo celeste con zorder=2)
+    ax.scatter(x_puntos, y_puntos, color='#7ec8e3', s=tamano_punto, alpha=opacidad, zorder=2, label='Puntos de Datos (azules)') 
+    
+    # 2. Se dibuja la línea central divisoria (Línea segmentada verde con zorder=1)
+    ax.axvline(x=x_division, color='#2ca02c', linestyle='--', linewidth=1.2, zorder=1, label='División D&C (verde dashed)') 
+    
+    # 3. Se sombrea el ancho de la franja central combinatoria (Área verde translúcida de tamaño ± Delta)
+    ax.axvspan(x_division - distancia_min, x_division + distancia_min, 
+               color='#2ca02c', alpha=0.15, zorder=1, label='Franja Central (verde sombreado)') 
+               
+    # 4. Se resalta el par de puntos más cercano en la capa más superficial de la interfaz (zorder=5 y 6)
+    if par_cercano:
+        p1, p2 = par_cercano
+        # Línea sólida de color amarillo brillante conectando ambos extremos de la solución óptima
+        ax.plot([p1[0], p2[0]], [p1[1], p2[1]], color='#ffcc00', linewidth=2.5, zorder=5, label='Par Más Cercano')
+        # Grandes halos difuminados rojos de fondo para fijar el foco de atención del usuario sobre el par
+        ax.scatter([p1[0], p2[0]], [p1[1], p2[1]], color='#ff3333', s=250, alpha=0.4, zorder=5)
+        # Puntos centrales definidos con borde blanco sobre el par óptimo
+        ax.scatter([p1[0], p2[0]], [p1[1], p2[1]], color='#7ec8e3', s=40, edgecolors='white', linewidths=1, zorder=6) 
+        
+        # Etiqueta de texto flotante con una flecha apuntando a la mitad exacta de la pareja encontrada
+        punto_medio_par = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
+        ax.annotate('Par Más Cercano', 
+                    xy=punto_medio_par, 
+                    xytext=(punto_medio_par[0] + (distancia_min * 1.5) + 5, punto_medio_par[1] + (distancia_min * 1.5) + 5),
+                    arrowprops=dict(arrowstyle="->", color="white", connectionstyle="arc3,rad=.1"),
+                    color='white', fontsize=10)
+                    
+    # REGLA DE AMPLITUD Y ENCUADRE: Forzamos un aspecto automático libre para que la gráfica ocupe todo 
+    # el lienzo de la ventana horizontal expansivamente, tal como se requiere en el informe académico.
+    ax.set_aspect('auto')
+    
+    # Cálculo de márgenes proporcionales del 8% a los extremos para que los puntos no toquen los bordes físicos
+    margin_x = (max(x_puntos) - min(x_puntos)) * 0.08
+    margin_y = (max(y_puntos) - min(y_puntos)) * 0.08
+    ax.set_xlim(min(x_puntos) - margin_x, max(x_puntos) + margin_x)
+    ax.set_ylim(min(y_puntos) - margin_y, max(y_puntos) + margin_y)
+    
+    # Texto estático complementario en la esquina superior derecha con la distancia final impresa
+    ax.text(0.97, 0.95, f"Distancia: {distancia_min:.4f} unidades", 
+            transform=ax.transAxes, color='white', fontsize=10, ha='right', va='top')
+            
+    # Configuración de rótulos, títulos institucionales y cuadrículas de fondo
+    ax.set_title(f"Visualización Completa: {nombre_archivo} ({total_puntos} puntos)", fontsize=14, pad=15)
+    ax.set_xlabel("Eje X", fontsize=11)
+    ax.set_ylabel("Eje Y", fontsize=11)
+    ax.grid(True, linestyle='-', color='#ffffff', alpha=0.12, zorder=0)
+    ax.legend(loc='upper right') 
+    
+    plt.tight_layout()  # Ajusta las proporciones internas del lienzo para evitar recortes en etiquetas
+    plt.show()          # Despliega la ventana emergente interactiva de Matplotlib
+
+
+# =========================================================================
+# 4. PROGRAMA DE EJECUCIÓN PRINCIPAL
+# =========================================================================
+if __name__ == "__main__":
+    archivo_elegido = menu_seleccion()
+    if archivo_elegido:
+        # Fase 1: Lectura, parseo y carga de estructuras
+        print(f"\n[1/3] Cargando coordenadas desde '{archivo_elegido}'...")
+        datos = cargar_datos(archivo_elegido)
+        
+        if datos:
+            # Fase 2: Ejecución del núcleo del algoritmo Divide y Vencerás
+            print(f"[2/3] Procesando {len(datos)} puntos mediante Divide y Vencerás...")
+            dist_minima, par_optimo = buscar_par_mas_cercano(datos)
+            
+            # Impresión del bloque consolidado de datos analíticos en consola
+            print("\n" + "="*40)
+            print("         RESULTADOS ANALÍTICOS")
+            print("="*40)
+            print(f" Distancia mínima: {dist_minima:.6f}")
+            print(f" Punto 1: {par_optimo[0]}")
+            print(f" Punto 2: {par_optimo[1]}")
+            print("="*40)
+            
+            # Fase 3: Despliegue de la interfaz y renderizado
+            print("\n[3/3] Generando interfaz gráfica. Por favor espera...")
+            graficar_resultado(datos, par_optimo, dist_minima, archivo_elegido)
